@@ -1,0 +1,25 @@
+{
+  "name": "nodejs",
+  "version": "1,0,0",
+  "description": "Thsi is a node project",
+  "main": "index.js",
+  "author": "",
+  "repository": "",
+  "license": "MIT",
+  "private": false,
+  "scripts": {
+    "dev": "node index.js",
+    "start": "node index.js",
+    "obfuscate": "node obfuscate.js",
+    "obfuscate:medium": "node obfuscate.js medium"
+  },
+  "dependencies": {
+    "axios": "latest"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "^4.1.1"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}
