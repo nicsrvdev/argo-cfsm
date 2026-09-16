@@ -1,15 +1,15 @@
-name: Build and Push Docker Image
+name: Build and Push Docker Image (nodejs)
 
 on:
   push:
-    branches: [ main ]
+    branches: [ nodejs ]
     paths:
       - 'Dockerfile'
       - 'index.js'
       - 'package.json'
       - 'index.html'
   pull_request:
-    branches: [ main ]
+    branches: [ nodejs ]
   workflow_dispatch:
 
 jobs:
