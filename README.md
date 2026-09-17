@@ -1,4 +1,4 @@
-# argo-cfsm (nodejs)
+# Nodejs-Argo-Cfsm
 
 基于 [eooce/nodejs-argo](https://github.com/eooce/nodejs-argo) 改造的 **Argo 隧道 + 多协议代理 + 服务器监控探针** 一体容器镜像。
 
@@ -9,7 +9,7 @@
 ## 镜像
 
 ```bash
-docker pull ghcr.io/nicsrvdev/argo-cfsm:latest
+docker pull ghcr.io/nicsrvdev/nodejs-argo-cfsm:latest
 ```
 
 ## 与原项目的差异
@@ -27,7 +27,7 @@ docker pull ghcr.io/nicsrvdev/argo-cfsm:latest
 ## 快速使用
 
 ```bash
-docker run -d --name argo-cfsm \
+docker run -d --name nodejs-argo-cfsm \
   -e UUID="你的UUID" \
   -e CFP_ID="CF面板服务器ID" \
   -e CFP_SECRET="CF面板密钥" \
@@ -35,7 +35,7 @@ docker run -d --name argo-cfsm \
   -e ARGO_AUTH="固定隧道token(留空=临时隧道)" \
   -e ARGO_DOMAIN="固定隧道域名(留空=临时隧道)" \
   -p 3000:3000 \
-  ghcr.io/nicsrvdev/argo-cfsm:latest
+  ghcr.io/nicsrvdev/nodejs-argo-cfsm:latest
 ```
 
 - 书签首页：`http://<主机>:3000/`
@@ -117,7 +117,7 @@ docker run -d --name argo-cfsm \
    ```
 5. **推送构建**：提交 `index.js` 到你的仓库 `main`。GitHub Actions 检测到 `index.js` 变更，自动构建并推送镜像到你自己的 GHCR：
    ```
-   ghcr.io/<你的用户名>/nodejs:latest
+   ghcr.io/<你的用户名>/nodejs-argo-cfsm:latest
    ```
 
 > **注意**：
@@ -131,7 +131,7 @@ docker run -d --name argo-cfsm \
 
 本项目的部署方式有两种，**凭据处理方式不同**：
 
-- **方式一：直接使用公开镜像**（`ghcr.io/nicsrvdev/argo-cfsm:latest`）
+- **方式一：直接使用公开镜像**（`ghcr.io/nicsrvdev/nodejs-argo-cfsm:latest`）
   - 镜像与代码**不含任何私密配置**，变量一律通过环境变量注入（见「快速使用」变量表）
   - 部署到 Render / Koyeb 等平台时，将环境变量填入平台服务配置即可
 - **方式二：fork 自定义构建**

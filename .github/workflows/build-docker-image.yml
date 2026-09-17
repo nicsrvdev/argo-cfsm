@@ -1,15 +1,15 @@
-name: Build and Push Docker Image (nodejs)
+name: Build and Push Docker Image
 
 on:
   push:
-    branches: [ nodejs ]
+    branches: [ main ]
     paths:
       - 'Dockerfile'
       - 'index.js'
       - 'package.json'
       - 'index.html'
   pull_request:
-    branches: [ nodejs ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -43,7 +43,7 @@ jobs:
             ghcr.io/${{ github.repository }}:latest
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.description=argo-cfsm: Argo tunnel + xray proxy + CF-Server-Monitor probe
+            org.opencontainers.image.description=Nodejs-Argo-Cfsm: Argo tunnel + Xray proxy + CF-Server-Monitor probe
             org.opencontainers.image.licenses=MIT
           cache-from: type=gha
           cache-to: type=gha,mode=max

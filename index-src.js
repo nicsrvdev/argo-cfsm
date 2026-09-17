@@ -354,35 +354,68 @@ async function generateConfig() {
   fs.writeFileSync(path.join(FILE_PATH, 'config.json'), JSON.stringify(config, null, 2));
 }
 
-// 判断系统架构（与原项目一致，只分 amd/arm 两档用于兼容提示，实际二进制已内置）
+// 判断系统架构：返回 cf-probe 官方 Release asset 后缀(amd64/arm64)，xray/bot 私有 CDN 仍用 amd/arm 两档
 function getSystemArchitecture() {
   const arch = os.arch();
-  if (arch === 'arm' || arch === 'arm64' || arch === 'aarch64') {
-    return 'arm';
+  if (arch === 'arm64' || arch === 'aarch64') {
+    return 'arm64';
   }
-  return 'amd';
+  return 'amd64';
+}
+// xray/bot 私有 CDN 的架构目录名(amd64.oooen.com / arm64.oooen.com)
+function getCdnArch() {
+  return getSystemArchitecture() === 'arm64' ? 'arm' : 'amd';
 }
 
-// 从镜像内置路径复制二进制到运行目录（改成随机名，防检测；进程起来后可删）
-function prepareBuiltinBinaries() {
-  const plans = [
-    { src: BUILTIN_XRAY, dst: webPath },
-    { src: BUILTIN_BOT, dst: botPath },
-    { src: BUILTIN_CFP, dst: cfPath },
-  ];
-  plans.forEach(({ src, dst }) => {
-    try {
-      if (!fs.existsSync(src)) {
-        console.error(`built-in binary not found: ${src}`);
-        return;
-      }
-      fs.copyFileSync(src, dst);
+// 通用下载: axios stream 落盘,超时 180s
+async function downloadFile(dst, url) {
+  const writer = fs.createWriteStream(dst);
+  try {
+    const response = await axios({ method: 'get', url, responseType: 'stream', timeout: 180000, maxRedirects: 5 });
+    await new Promise((resolve, reject) => {
+      response.data.pipe(writer);
+      writer.on('finish', resolve);
+      writer.on('error', reject);
+    });
+    console.log(`Download ${path.basename(dst)} successfully`);
+    return true;
+  } catch (err) {
+    try { fs.unlinkSync(dst); } catch (_) {}
+    console.error(`Download failed: ${url}: ${err.message}`);
+    return false;
+  }
+}
+
+// 内置优先,缺失才下载兜底: 返回最终可用的运行路径(随机名副本),都不行返回 null
+async function ensureBinary(dst, builtinSrc, cdnPath, cfAsset) {
+  // 1) 镜像内置: 复制为随机名
+  try {
+    if (fs.existsSync(builtinSrc)) {
+      fs.copyFileSync(builtinSrc, dst);
       fs.chmodSync(dst, 0o775);
-      console.log(`${path.basename(src)} -> ${path.basename(dst)}`);
-    } catch (err) {
-      console.error(`prepare binary failed: ${src}: ${err.message}`);
+      console.log(`${path.basename(builtinSrc)} -> ${path.basename(dst)}`);
+      return dst;
     }
-  });
+  } catch (err) {
+    console.error(`prepare binary failed: ${builtinSrc}: ${err.message}`);
+  }
+  console.error(`built-in binary not found: ${builtinSrc}, fallback to download`);
+  // 2) 远程下载兜底
+  const urls = cfAsset
+    ? [
+        `https://github.com/huilang-me/cfsm-agent/releases/latest/download/${cfAsset}`,
+        `https://ghproxy.net/https://github.com/huilang-me/cfsm-agent/releases/latest/download/${cfAsset}`,
+        `https://mirror.ghproxy.com/https://github.com/huilang-me/cfsm-agent/releases/latest/download/${cfAsset}`,
+      ]
+    : [`https://${getCdnArch()}64.oooen.com/${cdnPath}`, `https://${getCdnArch()}64.ssss.nyc.mn/${cdnPath}`];
+  for (const url of urls) {
+    if (await downloadFile(dst, url)) {
+      try { fs.chmodSync(dst, 0o775); } catch (_) {}
+      return dst;
+    }
+  }
+  console.error(`Error downloading ${path.basename(dst)}: all sources failed`);
+  return null;
 }
 
 // 生成 cf-probe 探针配置（cfsm/cf-probe run -config 格式）
@@ -412,38 +445,39 @@ function writeCfProbeConfig() {
   console.log(`cf-probe config saved: ${cfpConfPath}`);
 }
 
-// 指向运行后的二进制（若被清理则用内置源直接跑）
-function liveBinary(p) {
-  return fs.existsSync(p) ? p : (() => {
-    const srcs = { [webPath]: BUILTIN_XRAY, [botPath]: BUILTIN_BOT, [cfPath]: BUILTIN_CFP };
-    return srcs[p] || p;
-  })();
-}
-
-// 启动并运行依赖（全部内置，无远程下载）
+// 启动并运行依赖（内置优先，缺失则下载兜底）
 async function runAll() {
-  prepareBuiltinBinaries();
+  const cfAsset = `cf-probe-linux-${getSystemArchitecture()}`;
   const arch = getSystemArchitecture();
-  console.log(`architecture: ${arch}, built-in binaries prepared`);
+  console.log(`architecture: ${arch}`);
 
   // ---------- 运行 cf-probe 探针 ----------
+  let cfBin = null;
   if (CFP_ID && CFP_SECRET && CFP_URL) {
     writeCfProbeConfig();
-    const debugArg = CFP_DEBUG === '1' ? '-debug=1' : '-debug=0';
-    const command = `nohup ${liveBinary(cfPath)} run -config "${cfpConfPath}" ${debugArg} >/dev/null 2>&1 &`;
-    try {
-      await exec(command);
-      console.log(`${cfName} is running`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    } catch (error) {
-      console.error(`cf probe running error: ${error}`);
+    cfBin = await ensureBinary(cfPath, BUILTIN_CFP, null, cfAsset);
+    if (cfBin) {
+      const debugArg = CFP_DEBUG === '1' ? '-debug=1' : '-debug=0';
+      const command = `nohup ${cfBin} run -config "${cfpConfPath}" ${debugArg} >/dev/null 2>&1 &`;
+      try {
+        await exec(command);
+        console.log(`${cfName} is running`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      } catch (error) {
+        console.error(`cf probe running error: ${error}`);
+      }
     }
   } else {
     console.log('CF component variables (CFP_ID/CFP_SECRET/CFP_URL) are not all set, skip running probe');
   }
 
   // ---------- 运行 xray ----------
-  const command1 = `nohup ${liveBinary(webPath)} -c ${configPath} >/dev/null 2>&1 &`;
+  const webBin = await ensureBinary(webPath, BUILTIN_XRAY, 'web', null);
+  if (!webBin) {
+    console.error('xray binary missing, abort');
+    return;
+  }
+  const command1 = `nohup ${webBin} -c ${configPath} >/dev/null 2>&1 &`;
   try {
     await exec(command1);
     console.log(`${webName} is running`);
@@ -453,7 +487,8 @@ async function runAll() {
   }
 
   // ---------- 运行 cloudflared ----------
-  if (fs.existsSync(liveBinary(botPath))) {
+  const botBin = await ensureBinary(botPath, BUILTIN_BOT, 'bot', null);
+  if (botBin) {
     let args;
 
     if (ARGO_AUTH.match(/^[A-Z0-9a-z=]{120,250}$/)) {
@@ -465,7 +500,7 @@ async function runAll() {
     }
 
     try {
-      await exec(`nohup "${liveBinary(botPath)}" ${args} >/dev/null 2>&1 &`);
+      await exec(`nohup "${botBin}" ${args} >/dev/null 2>&1 &`);
       console.log(`${botName} is running`);
       await new Promise((resolve) => setTimeout(resolve, 2000));
     } catch (error) {
@@ -559,7 +594,7 @@ async function extractDomains() {
         await new Promise((resolve) => setTimeout(resolve, 3000));
         const args = `tunnel --edge-ip-version auto --no-autoupdate --protocol http2 --logfile "${path.resolve(bootLogPath)}" --loglevel info --url http://localhost:${ARGO_PORT}`;
         try {
-          await exec(`nohup "${liveBinary(botPath)}" ${args} >/dev/null 2>&1 &`);
+          await exec(`nohup "${botBin}" ${args} >/dev/null 2>&1 &`);
           console.log(`${botName} is running`);
           await new Promise((resolve) => setTimeout(resolve, 6000));
           await extractDomains();
